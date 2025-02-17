@@ -2,7 +2,6 @@ import datetime
 import hashlib
 import json
 import os
-import random
 import sys
 import time
 import typing
@@ -59,10 +58,10 @@ QUESTION_DATA: str = r"""
 {"question": "神社と寺の違いについて教えて。", "answer": "神社は日本古来の宗教である神道の信仰施設で、神々を祀る場所です。一方、寺は仏教の信仰施設で、仏像や経典が祀られています。神社は鳥居があり、神職が神事を行い、寺は仏像があり、僧侶が仏教の教えを説きます。"}
 {"question": "神在月とは何ですか？", "answer": "神在月とは、旧暦10月のことを指し、全国の八百万の神々が出雲大社に集まり、縁結びの神議り（かむはかり）が行われるとされる月です。出雲地方では「神在月」と呼びますが、他の地域では「神無月」と呼ばれます。"}
 """  # noqa: E501
-QUESTIONS: typing.List[typing.Dict[str, str]] = []
+QUESTIONS: list[dict[str, str]] = []
 
 
-def get_questions() -> typing.List[typing.Dict[str, str]]:
+def get_questions() -> list[dict[str, str]]:
     global QUESTIONS
     if len(QUESTIONS) == 0:
         for line in QUESTION_DATA.strip().split("\n"):
@@ -70,18 +69,28 @@ def get_questions() -> typing.List[typing.Dict[str, str]]:
     return QUESTIONS
 
 
-def generate_examples(question: typing.Dict[str, str], num_examples: int = 20) -> str:
+def generate_examples(
+    question: dict[str, str], trial: int, num_examples: int = 20, seed: str = ""
+) -> str:
     questions = get_questions()
     examples = [q for q in questions if question["question"] != q["question"]]
+    examples.sort(
+        key=lambda x: hashlib.sha1(f"{seed}::{trial}::{x['question']}".encode()).hexdigest()
+    )
     prompt = ""
-    for example in random.sample(examples, num_examples):
+    for example in examples[:num_examples]:
         prompt += f"Q: {example['question']}\nA: {example['answer']}\n\n"
     return prompt
 
 
 def generate_task(
-    question: typing.Dict[str, str], mode: str, num_examples: int = 20, prefix: str = ""
-) -> typing.Dict[str, str]:
+    question: dict[str, str],
+    mode: str,
+    trial: int,
+    num_examples: int = 20,
+    prefix: str = "",
+    seed: str = "",
+) -> dict[str, str]:
     if mode == "chat":
         system_prompt = "例と同様の文体及び文字数で、ユーザの質問に1行で答えてください。\n\n"
     elif mode == "qa":
@@ -89,11 +98,13 @@ def generate_task(
     else:
         system_prompt = ""
     system_prompt += "## 回答例\n"
-    system_prompt += generate_examples(question, num_examples=num_examples).strip()
+    system_prompt += generate_examples(
+        question, trial, num_examples=num_examples, seed=seed
+    ).strip()
     user_prompt = f"""Q: {question["question"]}\n"""
     if mode == "completion":
         user_prompt += "A:"
-    task = {"question": question["question"]}
+    task: dict[str, typing.Any] = {"question": question["question"]}
     if mode == "chat":
         task["system_prompt"] = prefix + system_prompt.strip()
         task["user_prompt"] = user_prompt.strip()
@@ -103,13 +114,16 @@ def generate_task(
         task["prompt"] = prefix + system_prompt.strip() + "\n\n" + user_prompt.strip()
     else:
         raise ValueError(f"Unknown mode: {mode}")
+    task["seed"] = int(
+        hashlib.sha1(f"{seed}::{trial}::{task['question']}".encode()).hexdigest(), 16
+    ) % (2**31)
     return task
 
 
 def run_tasks(
     mode: str,
     callback: typing.Callable[
-        [typing.List[typing.Dict[str, str]], typing.Dict[str, typing.Any]],
+        [list[dict[str, str]], dict[str, typing.Any]],
         typing.Iterable[typing.Optional[str]],
     ],
     *,
@@ -117,6 +131,7 @@ def run_tasks(
     model: str,
     num_examples: int = 20,
     num_trials: int = 100,
+    seed: str = "",
     **parameters: typing.Any,
 ) -> None:
     questions = get_questions()
@@ -144,10 +159,10 @@ def run_tasks(
             continue
         print(f"Starting a trial: {trial}", file=sys.stderr)
         if buf == "":
-            outputs: typing.Dict[str, str] = {}
+            outputs: dict[str, str] = {}
             for _ in range(10):
-                tasks: typing.List[typing.Dict[str, str]] = []
-                task_questions: typing.List[str] = []
+                tasks: list[dict[str, str]] = []
+                task_questions: list[str] = []
                 for q_info in questions:
                     if q_info["question"] in outputs:
                         continue
@@ -156,12 +171,14 @@ def run_tasks(
                         generate_task(
                             q_info,
                             mode,
+                            trial=trial,
                             num_examples=num_examples,
                             prefix=parameters.get("prefix", "")
                             .encode("utf-8")
                             .decode("unicode_escape")
                             .encode("latin1")
                             .decode("utf-8"),
+                            seed=seed,
                         )
                     )
                 if len(tasks) == 0:

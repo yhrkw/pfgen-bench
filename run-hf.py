@@ -15,7 +15,7 @@ class Callback:
         self.model: typing.Optional[transformers.PreTrainedModel] = None
 
     def __call__(
-        self, tasks: typing.List[typing.Dict[str, str]], params: typing.Dict[str, typing.Any]
+        self, tasks: list[dict[str, str]], params: dict[str, typing.Any]
     ) -> typing.Iterator[typing.Optional[str]]:
         model_id = params.get("_path", None) or params["model"]
         mode = params["mode"]
@@ -45,7 +45,7 @@ class Callback:
         if not hasattr(model.config, "pad_token_id"):
             model.config.pad_token_id = tokenizer.eos_token_id
 
-        task_groups: typing.List[typing.List[typing.Dict[str, str]]] = [[]]
+        task_groups: list[list[dict[str, str]]] = [[]]
         for task in tasks:
             if len(task_groups[-1]) >= params["_batch_size"]:
                 task_groups.append([])
@@ -85,12 +85,15 @@ class Callback:
                     stop_strings.append(tokenizer.eos_token)
                 if tokenizer.bos_token is not None:
                     stop_strings.append(tokenizer.bos_token)
+                torch.manual_seed(task.get("seed", 0))
+                do_sample = params["temperature"] > 1e-6
                 outputs = model.generate(
                     **{k: v.to(model.device) for k, v in inputs.items()},
                     max_new_tokens=params.get("max_tokens", 300),
-                    do_sample=True,
-                    temperature=params["temperature"],
-                    top_p=params["top_p"],
+                    do_sample=do_sample,
+                    temperature=params["temperature"] if do_sample else None,
+                    top_p=params["top_p"] if do_sample else None,
+                    top_k=None,
                     pad_token_id=tokenizer.eos_token_id,
                     tokenizer=tokenizer,
                     stop_strings=stop_strings,
