@@ -1,15 +1,17 @@
 import glob
+import hashlib
+import html
 import json
 import os
-import sys
-import html
 import re
-import hashlib
+import sys
+import typing
 from concurrent import futures
 
 
 class PgenReporter(object):
-    def __init__(self):
+
+    def __init__(self) -> None:
         super().__init__()
         print("Loading metadata...", file=sys.stderr)
         metadata = {}
@@ -27,7 +29,7 @@ class PgenReporter(object):
             )
         )
 
-    def stringfy_items(self, d: dict[str, float], *, long: bool = False):
+    def stringfy_items(self, d: dict[str, float], *, long: bool = False) -> str:
         config = {
             "P": (0, "PFN"),
             "T": (1, "Titech"),
@@ -40,7 +42,7 @@ class PgenReporter(object):
             d = {config[k][1]: v for k, v in d.items()}
         return "+".join([f"{k}:{v:.4f}" for k, v in d.items()])
 
-    def stringfy_scores(self, scores, *, long: bool = False, extra: str = ""):
+    def stringfy_scores(self, scores: typing.Any, *, long: bool = False, extra: str = "") -> str:
         if long:
             result = f"""- Score: {scores["average"]:.3f}{extra}\n"""
             for m, name in [("fluency", "Fluency"), ("truthfulness", "Truthfulness")]:
@@ -65,7 +67,7 @@ class PgenReporter(object):
             result += f""")){extra}"""
         return result
 
-    def process_result(self, result_path, output_path, *, force=False):
+    def process_result(self, result_path: str, output_path: str, *, force: bool = False) -> None:
         if not force:
             print(f"Checking a result from {result_path}...", file=sys.stderr)
             # Calculate SHA-1 hash.
@@ -75,9 +77,7 @@ class PgenReporter(object):
                 # If output file contains "<!-- result.json: SHA1 -->", skip it.
                 with open(output_path) as f:
                     if f"<!-- result.json: {result_hash} -->" in f.read():
-                        print(
-                            f"Skipping a result from {result_path}...", file=sys.stderr
-                        )
+                        print(f"Skipping a result from {result_path}...", file=sys.stderr)
                         return
 
         print(f"Loading a result from {result_path}...", file=sys.stderr)
@@ -97,7 +97,7 @@ class PgenReporter(object):
                 )
             )
 
-            f.write(f"""## Questions\n\n""")
+            f.write("""## Questions\n\n""")
 
             f.write("| Question | Score | Length |\n")
             f.write("|----------|-------|--------|\n")
@@ -118,29 +118,22 @@ class PgenReporter(object):
             for md in self.metadata.values():
                 question_id = md["question_id"]
                 question = md["question"]
-                f.write(
-                    f"""## <a name="{question_id}"></a>{question_id}. {question}\n\n"""
-                )
+                f.write(f"""## <a name="{question_id}"></a>{question_id}. {question}\n\n""")
                 r = result["questions"][question_id]
                 f.write(
-                    self.stringfy_scores(
-                        r["scores"], long=True, extra=f""" (±{r["score_std"]})"""
-                    )
+                    self.stringfy_scores(r["scores"], long=True, extra=f""" (±{r["score_std"]})""")
                 )
                 f.write(f"""- Length: {r["length"]} (±{r["length_std"]})\n\n""")
-                f.write(f"""<dl>\n""")
+                f.write("""<dl>\n""")
                 for a in r["samples"]:
-                    f.write(
-                        f"""<dt>{self.stringfy_scores(a["scores"], long=False)}</dt>\n"""
-                    )
+                    f.write(f"""<dt>{self.stringfy_scores(a["scores"], long=False)}</dt>\n""")
                     answer = f"""^{a["answer"]}$"""
                     dist = [0 for _ in range(len(answer))]
                     total = sum(len(xs) for xs in md["answers"].values())
                     for i in range(len(dist) - 3 + 1):
                         t = answer[i : i + 3]
                         dist[i] = sum(
-                            sum(1 if t in x else 0 for x in xs)
-                            for xs in md["answers"].values()
+                            sum(1 if t in x else 0 for x in xs) for xs in md["answers"].values()
                         )
                     ngram_dist = []
                     for i in range(len(dist)):
@@ -163,11 +156,11 @@ class PgenReporter(object):
                             s += c
                     s = s.replace("</b><b>", "").replace("</s><s>", "")
                     f.write(f"""<dd>{s}</dd>\n""")
-                f.write(f"""</dl>\n\n""")
+                f.write("""</dl>\n\n""")
         os.rename(output_path + ".tmp", output_path)
         print(f"Finished writing a report to {output_path}.", file=sys.stderr)
 
-    def leaderboard(self):
+    def leaderboard(self) -> None:
         print("Loading results...", file=sys.stderr)
         results = {}
         for result_path in self.result_paths:
@@ -196,6 +189,7 @@ class PgenReporter(object):
                 icon = "🟢"
             if len(model) > 40:
                 model = model[:37] + "..."
+            # ruff: noqa: E501
             table.append(
                 {
                     "Rank": f"{rank}" if mode != "system" else "N/A",
@@ -210,9 +204,7 @@ class PgenReporter(object):
             if mode != "system":
                 rank += 1
         for key in table[0]:
-            width = max(
-                sum(1 if ord(x) < 128 else 2 for x in row[key]) for row in table
-            )
+            width = max(sum(1 if ord(x) < 128 else 2 for x in row[key]) for row in table)
             label = key + "&nbsp;" * max(0, width - len(key))
             buffer += f"| <code>{label}</code> "
         buffer += "|\n"
@@ -245,15 +237,13 @@ class PgenReporter(object):
         os.rename("README.md.tmp", "README.md")
         print("Finished writing a leaderboard.", file=sys.stderr)
 
-    def run(self, *, force=False):
+    def run(self, *, force: bool = False) -> None:
         with futures.ProcessPoolExecutor(max_workers=32) as executor:
             fs = []
             for result_path in self.result_paths:
                 output_path = os.path.join(os.path.dirname(result_path), "README.md")
                 fs.append(
-                    executor.submit(
-                        self.process_result, result_path, output_path, force=force
-                    )
+                    executor.submit(self.process_result, result_path, output_path, force=force)
                 )
             fs.append(executor.submit(self.leaderboard))
             for f in futures.as_completed(fs):
