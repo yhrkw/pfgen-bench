@@ -114,9 +114,7 @@ def generate_task(
         task["prompt"] = prefix + system_prompt.strip() + "\n\n" + user_prompt.strip()
     else:
         raise ValueError(f"Unknown mode: {mode}")
-    task["seed"] = int(
-        hashlib.sha1(f"{seed}::{trial}::{task['question']}".encode()).hexdigest(), 16
-    ) % (2**31)
+    task["seed"] = int(hashlib.sha1(f"{seed}::{trial}".encode()).hexdigest(), 16) % (2**31)
     return task
 
 
@@ -124,7 +122,7 @@ def run_tasks(
     mode: str,
     callback: typing.Callable[
         [list[dict[str, str]], dict[str, typing.Any]],
-        typing.Iterable[typing.Optional[str]],
+        typing.Iterable[str | None],
     ],
     *,
     engine: str,
